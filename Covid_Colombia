@@ -1,0 +1,333 @@
+##### This code was made by Daniel Benavides, Juan David Lozada y Héctor Iván Peña.
+
+##Cargue de librerias de Python
+
+import pandas as pd
+import numpy as np
+import os
+
+from datetime import datetime
+from datetime import timedelta
+from dateutil.relativedelta import relativedelta
+
+import ipywidgets as widgets
+from ipywidgets import interactive
+
+from IPython.core.interactiveshell import InteractiveShell
+InteractiveShell.ast_node_interactivity = "all"
+pd.options.display.float_format = '{:,.2f}'.format
+
+import warnings
+warnings.filterwarnings("ignore")
+
+#Carga bases de datos
+
+cod_davipola = pd.read_csv('https://www.datos.gov.co/api/views/gdxc-w37w/rows.csv?accessType=DOWNLOAD&bom=true&format=true')
+base_covid = pd.read_csv('https://www.datos.gov.co/api/views/gt2j-8ykr/rows.csv?accessType=DOWNLOAD&bom=true&format=true')
+
+#Procesamiento de Datos.
+
+####PARAMETRIZACIÓN GENERAL - ESTANDARIZAR BASE DE DATOS####
+#Se Crean data frames con las tablas referenciales
+Tabla_Referencial_Sexo = pd.DataFrame({'SEXO_SIN_ESTANDARIZAR':['M','MASCULINO','HOMBRE','F','FEMENINO','MUJER'],
+                    'SEXO_ESTANDARIZADO':['M','M','M','F','F','F']})
+Tabla_Referencial_Estado = pd.DataFrame({'ESTADO_SIN_ESTANDARIZAR':['LEVE', 'FALLECIDO','MUERTO','MODERADO', 'GRAVE'],
+                    'ESTADO_ESTANDARIZADO':['LEVE', 'FALLECIDO', 'FALLECIDO', 'MODERADO', 'GRAVE']})
+Tabla_Referencial_Tipo_Contagio = pd.DataFrame({'TIPO_CONTAGIO_SIN_ESTANDARIZAR':['COMUNITARIA', 'RELACIONADO', 'IMPORTADO'],
+                    'TIPO_CONTAGIO_ESTANDARIZADO':['COMUNITARIA', 'RELACIONADO', 'IMPORTADO']})
+
+#Convertimos las bases referenciales en diccionarios
+referencial_sexo = dict([(x,y) for x,y in zip(Tabla_Referencial_Sexo.SEXO_SIN_ESTANDARIZAR,Tabla_Referencial_Sexo.SEXO_ESTANDARIZADO)])
+referencial_estado = dict([(x,y) for x,y in zip(Tabla_Referencial_Estado.ESTADO_SIN_ESTANDARIZAR,Tabla_Referencial_Estado.ESTADO_ESTANDARIZADO)])
+referencial_contagio = dict([(x,y) for x,y in zip(Tabla_Referencial_Tipo_Contagio.TIPO_CONTAGIO_SIN_ESTANDARIZAR,Tabla_Referencial_Tipo_Contagio.TIPO_CONTAGIO_ESTANDARIZADO)])
+
+#Copiamos base de datos covid
+df = base_covid.copy()
+#seleccionamos las variables requeridas
+columnas = ['ID de caso','Fecha de muerte','Código DIVIPOLA departamento','Código DIVIPOLA municipio','Sexo','Edad','Tipo de contagio', 'Estado']
+df = df.reindex(columns = columnas)
+#renombramos las variables
+df.columns = ['ID','FECHA_MUERTE','COD_DEPARTAMENTO','COD_MUNICIPIO','SEXO','EDAD','TIPO_CONTAGIO','ESTADO']
+#eliminamos filas totalmente vacias
+df = df.dropna(how = 'all')
+#Estandariza la columna del codigo de municipio y la cambia de str a float.
+df['COD_MUNICIPIO'] = df['COD_MUNICIPIO'].apply(lambda x: x.replace(',', '')).astype('float')
+
+#VALIDACION CODIGO MUNICIPIO
+#Convertimos las bases referenciales en diccionarios
+referencial_cod_municipio = dict([ (x,y) for x,y in zip(cod_davipola['Código Municipio'],cod_davipola['Nombre Municipio'])])
+#Lista de comprension para obtener los datos que NO se encuentran en el diccionario referencial de sexo
+cod_municipio_no_existe = [cod for cod in df['COD_MUNICIPIO'].unique() if cod not in referencial_cod_municipio.keys()]
+#Prueba logica para identificar si hay datos que no están dentro de la tabla referencial
+if len(cod_municipio_no_existe) != 0:
+    #Mensaje de alerta sobre datos que no están en tabla referencial de sexo
+    print(f'los siguientes códigos de municipio no existen {cod_municipio_no_existe}, por favor agreguelos en la tabla referencial y vuelva a ejecutar.')
+
+#SE REALIZA CRUCE DE BASE DE DATOS
+
+#Trae el nombre del municipio y departamento de la base de datos del gobierno
+df_base_covid = pd.merge(df, cod_davipola, left_on='COD_MUNICIPIO', right_on='Código Municipio')
+#seleccionamos las variables requeridas
+columnas_base = ['ID','FECHA_MUERTE','COD_MUNICIPIO','Nombre Departamento','Nombre Municipio','SEXO','EDAD','TIPO_CONTAGIO','ESTADO']
+df_base_covid = df_base_covid.reindex(columns = columnas_base)
+#seleccionamos las variables requeridas
+columnas_base = ['ID','FECHA_MUERTE','COD_MUNICIPIO','Nombre Departamento','Nombre Municipio','SEXO','EDAD','TIPO_CONTAGIO','ESTADO']
+df_base_covid = df_base_covid.reindex(columns = columnas_base)
+#renombramos las variables
+df_base_covid.columns = ['ID','FECHA_MUERTE','COD_MUNICIPIO','NOMBRE_DEPARTAMENTO','NOMBRE_MUNICIPIO','SEXO','EDAD','TIPO_CONTAGIO','ESTADO']
+
+#ESTANDARIZAMOS SEXO
+#Se dejan los valores de sexo en mayuscula
+df_base_covid['SEXO'] = df_base_covid['SEXO'].str.upper()
+#Lista de comprension para obtener los datos que NO se encuentran en el diccionario referencial de sexo
+sexo_no_existe = [sex for sex in df_base_covid['SEXO'].unique() if sex not in referencial_sexo.keys()]
+#Prueba logica para identificar si hay datos que no están dentro de la tabla referencial
+if len(sexo_no_existe) != 0:
+    #Mensaje de alerta sobre datos que no están en tabla referencial de sexo
+    print(f'los siguientes sexos no existen {sexo_no_existe}, por favor agreguelos en la tabla referencial y vuelva a ejecutar (No aplica para datos en blanco).')
+#Estandariza la base de datos de sexo
+df_base_covid['SEXO'] = [referencial_sexo.get(x,"SIN_REGISTRO") for x in  df_base_covid['SEXO']]
+
+#ESTANDARIZAMOS ESTADO
+#Se dejan los valores de sexo en mayuscula
+df_base_covid['ESTADO'] = df_base_covid['ESTADO'].str.upper()
+#Lista de comprension para obtener los datos que NO se encuentran en el diccionario referencial de sexo
+estado_no_existe = [status for status in df_base_covid['ESTADO'].unique() if status not in referencial_estado.keys()]
+#Prueba logica para identificar si hay datos que no están dentro de la tabla referencial
+if len(estado_no_existe) != 0:
+    #Mensaje de alerta sobre datos que no están en tabla referencial de sexo
+    print(f'los siguientes Estados no existen {estado_no_existe}, por favor agreguelos en la tabla referencial y vuelva a ejecutar (No aplica para datos en blanco).')
+#Estandariza la base de datos de sexo
+df_base_covid['ESTADO'] = [referencial_estado.get(x,"SIN_REGISTRO") for x in  df_base_covid['ESTADO']]
+
+#ESTANDARIZAMOS TIPO CONTAGIO
+#Se dejan los valores de sexo en mayuscula
+df_base_covid['TIPO_CONTAGIO'] = df_base_covid['TIPO_CONTAGIO'].str.upper()
+#Lista de comprension para obtener los datos que NO se encuentran en el diccionario referencial de sexo
+contagio_no_existe = [status for status in df_base_covid['TIPO_CONTAGIO'].unique() if status not in referencial_contagio.keys()]
+#Prueba logica para identificar si hay datos que no están dentro de la tabla referencial
+if len(contagio_no_existe) != 0:
+    #Mensaje de alerta sobre datos que no están en tabla referencial de sexo
+    print(f'los siguientes tipos de contagio no existen {contagio_no_existe}, por favor agreguelos en la tabla referencial y vuelva a ejecutar (No aplica para datos en blanco).')
+#Estandariza la base de datos de sexo
+df_base_covid['TIPO_CONTAGIO'] = [referencial_contagio.get(x,"SIN_REGISTRO") for x in df_base_covid['TIPO_CONTAGIO']]
+
+#******Validación de duplicados
+duplicado = df_base_covid[df_base_covid.duplicated(subset = ['ID'])] #Se crea variable con los duplicados
+#Validamos que existan duplicados
+if len(duplicado) > 0:
+    print(f'Se presentan los siguientes duplicados en la base de datos {duplicado}') #Se presenta el mensaje en caso de tener duplicados
+
+#####RESPUESTA A PRIMER PUNTO - CANTIDAD DE FALLECIMIENTOS POR MESES Y DEPARTAMENTOS
+#filtramos y dejamos solo las filas, donde FECHA MUERTE no es nulo (NaN)
+df_base_covid_2 = df_base_covid[~df_base_covid.FECHA_MUERTE.isnull()]
+#SE CONVIERTEN LAS FECHAS EN FORMATO DE DATETIME
+df_base_covid_2['FECHA_MUERTE'] = pd.to_datetime(df_base_covid_2['FECHA_MUERTE'], format = '%Y-%m-%d')
+#creamos la columna de año
+df_base_covid_2['Anio'] = df_base_covid_2.FECHA_MUERTE.dt.year
+#mes
+df_base_covid_2['Mes'] = df_base_covid_2.FECHA_MUERTE.dt.month
+#día
+df_base_covid_2['Dia'] = df_base_covid_2.FECHA_MUERTE.dt.day
+
+#Creamos diccionario para visualizar nombre de meses
+meses = {1:'Enero',
+         2:'Febrero',
+         3:'Marzo',
+         4:'Abril',
+         5:'Mayo',
+         6:'Junio',
+         7:'Julio',
+         8:'Agosto',
+         9:'Septiembre',
+         10:'Octubre',
+         11:'Noviembre',
+         12:'Diciembre'}
+#Recorremos la base para asignar el nombre del mes
+df_base_covid_2['Mes_2'] = [meses.get(mes).upper() for mes in df_base_covid_2['Mes']]
+#Se realiza un Pivot Table para crear la base de datos con el total de fallecimientos por meses y departamentos
+df_fallecimientos_mes_dpto = df_base_covid_2.pivot_table (index = 'NOMBRE_DEPARTAMENTO', columns = 'Mes_2', values = 'ID', aggfunc = 'count').reset_index()
+#Se crea variable para organizar las columnas
+columnas_mes = ['NOMBRE_DEPARTAMENTO','ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
+#Se organiza columnas
+df_fallecimientos_mes_dpto = df_fallecimientos_mes_dpto.reindex(columns = columnas_mes)
+
+#####RESPUESTA A SEGUNDO - CANTIDAD DE FALLECIMIENTOS POR AÑO Y MES
+#Se realiza un Pivot Table para crear la base de datos con el total de fallecimientos por meses y año
+df_fallecimientos_anio_mes = df_base_covid_2.pivot_table (index = 'Mes', columns = 'Anio', values = 'ID', aggfunc = 'count').reset_index()
+#Recorre la lista para asignar el nombre de los meses
+df_fallecimientos_anio_mes['Mes'] = [meses.get(mes).upper() for mes in df_fallecimientos_anio_mes['Mes']]
+
+#####RESPUESTA A TERCER - CANTIDAD DE FALLECIMIENTOS POR GENERO
+#Se realiza un Pivot Table para crear la base de datos con el total de fallecimientos por sexo y Estado
+df_fallecimientos_genero = df_base_covid_2.pivot_table (index = 'ESTADO', columns = 'SEXO', values = 'ID', aggfunc = 'count').reset_index()
+
+#####RESPUESTA A CUARTO PUNTO - CANTIDAD DE TIPO DE CONTAGIO EN FUNCIÓN DE LA EDAD
+#Se crea un diccionario con los rangos de edad
+rangos_edad = dict ([(n,'entre 0 y 10') for n in range (0,10)] +
+               [(n,'entre 10 y 20') for n in range (11,20)] +
+               [(n,'entre 20 y 30') for n in range (21,30)]+
+               [(n,'entre 30 y 40') for n in range (31,40)]+
+               [(n,'entre 40 y 50') for n in range (41,50)]+
+               [(n,'entre 50 y 70') for n in range (51,70)]+
+               [(n,'entre 70 y 90') for n in range (71,90)]+
+               [(n,'mayor a 90') for n in range (91,200)])
+
+#Recorremos la base para asignar el rango de edad
+df_base_covid['EDAD_2'] = [rangos_edad.get(x) for x in df_base_covid['EDAD']]
+#Se realiza un Pivot Table para crear la base de datos con el total de tipo de contagio en función de la edad
+df_tipo_contagio = df_base_covid.pivot_table (index = 'EDAD_2', columns = 'TIPO_CONTAGIO', values = 'ID', aggfunc = 'count').reset_index()
+
+#####RESPUESTA A QUINTO PUNTO - TIPO DE CONTAGIO POR DEPARTAMENTO
+#Se realiza un Pivot Table para crear la base de datos con el total de tipo de contagio por departamento
+df_contagio_dep = df_base_covid.pivot_table (index = 'NOMBRE_DEPARTAMENTO', columns = 'TIPO_CONTAGIO', values = 'ID', aggfunc = 'count').reset_index()
+
+#####RESPUESTA A SEXTO PUNTO - TOP 10 MAYOR # CONTAGIOS
+#Se realiza un groupby  para crear la base de datos con la cantidad de contagios por municipio
+total_contagio_mun = df_base_covid.groupby('COD_MUNICIPIO').agg(Cantidad = ('TIPO_CONTAGIO','count')).reset_index()
+#Se ordena la tabla con la cantidad de contagios por municipio
+total_contagio_mun = total_contagio_mun.sort_values('Cantidad',ascending=False)
+#Traemos el nombre de cada municipio
+total_contagio_mun = pd.merge(total_contagio_mun, cod_davipola, left_on='COD_MUNICIPIO', right_on='Código Municipio')
+#seleccionamos las columnas requeridas
+columnas_mun = ['Nombre Municipio','Cantidad']
+#Dejamos la tabla con la información requerida
+total_contagio_mun = total_contagio_mun.reindex(columns = columnas_mun)
+#Se identifican los 10 municipios con mayor cantidad de contagios
+Top_Max = total_contagio_mun.head(10)
+
+#####RESPUESTA A SÉPTIMO PUNTO - TOP 10 MENOR # CONTAGIOS
+#Se identifican los 10 municipios con mayor cantidad de contagios
+Top_Min= total_contagio_mun.tail(10)
+Top_Min = Top_Min.sort_values('Cantidad',ascending=True)
+
+#******************************FUNCIONES******************************
+
+#Creamos funcion para ordenar valores de la lista desplegable
+def ordenar(lista):
+    #Eliminamos duplicados
+    datos = list(set(lista))
+    #ordenamos ascendente
+    datos.sort
+    #Insertamos la palabra TODOS en primera posicion
+    datos.insert(0,'TODOS')
+    #retornamos la lista ajustada
+    return datos
+
+#Crea funcion para seleccionar datos por departamento y meses
+def filtrar_dep_mes(dep,month):
+    global data_mes_dpto
+    data_mes_dpto = df_fallecimientos_mes_dpto.copy()
+    #si el usuario filtra el departamento
+    if dep != 'TODOS':
+        data_mes_dpto = data_mes_dpto[data_mes_dpto.NOMBRE_DEPARTAMENTO == dep]
+    if month != 'TODOS':
+        data_mes_dpto = data_mes_dpto.loc[:,['NOMBRE_DEPARTAMENTO',month]]
+    return data_mes_dpto
+
+#Crea funcion para seleccionar datos por meses y años
+def filtrar_anio_mes(month,anio):
+    global data_anio_mes
+    data_anio_mes = df_fallecimientos_anio_mes.copy()
+    #si el usuario filtra el departamento
+    if month != 'TODOS':
+        data_anio_mes = data_anio_mes[df_fallecimientos_anio_mes.Mes == month]
+    if anio != 'TODOS':
+        data_anio_mes = data_anio_mes.loc[:,['Mes',anio]]
+    return data_anio_mes
+
+#Crea funcion para seleccionar datos por estado y genero
+def filtrar_genero(estado,genero):
+    global data_estado_genero
+    data_estado_genero = df_fallecimientos_genero.copy()
+    #si el usuario filtra el departamento
+    if estado != 'TODOS':
+        data_estado_genero = data_estado_genero[df_fallecimientos_genero.ESTADO == estado]
+    if genero != 'TODOS':
+        data_estado_genero = data_estado_genero.loc[:,['ESTADO',genero]]
+    return data_estado_genero
+
+#Crea funcion para seleccionar datos por edad y contagio
+def filtrar_edad(edad,contagio):
+    global data_edad_contagio
+    data_edad_contagio = df_tipo_contagio.copy()
+    #si el usuario filtra el departamento
+    if edad != 'TODOS':
+        data_edad_contagio = data_edad_contagio[df_tipo_contagio.EDAD_2 == edad]
+    if contagio != 'TODOS':
+        data_edad_contagio = data_edad_contagio.loc[:,['EDAD_2',contagio]]
+    return data_edad_contagio
+
+#Crea funcion para seleccionar datos por departamento y contagio
+def filtrar_dpto_contagio(dep,contagio):
+    global data_dpto_contagio
+    data_dpto_contagio = df_contagio_dep.copy()
+    #si el usuario filtra el departamento
+    if dep != 'TODOS':
+        data_dpto_contagio = data_dpto_contagio[data_dpto_contagio.NOMBRE_DEPARTAMENTO == dep]
+    if contagio != 'TODOS':
+        data_dpto_contagio = data_dpto_contagio.loc[:,['NOMBRE_DEPARTAMENTO',contagio]]
+    return data_dpto_contagio
+
+
+#Crea funcion para exportar
+def exportar(change):
+    with pd.ExcelWriter('./Base_Datos_Filtrados_covid.xlsx') as writer:
+        data_mes_dpto.to_excel(writer, sheet_name='Muertes_Mes_Dpto', index=False)
+        data_anio_mes.to_excel(writer, sheet_name='Muertes_Anio_Mes', index=False)
+        data_estado_genero .to_excel(writer, sheet_name='Muertes_Genero', index=False)
+        data_edad_contagio.to_excel(writer, sheet_name='Tipo_Contagio', index=False)
+        data_dpto_contagio.to_excel(writer, sheet_name='Tipo_Contagio_Dpto', index=False)
+        print(f'La base ha sido exportada en {os.getcwd()} en el archivo Base_Datos_Filtrados_covid con los filtros seleccionados')
+
+#SE CREAN LOS ELEMENTOS INTERACTIVOS
+print(f'Seleccione el departamento y el mes de interes') #Mensaje para seleccionar
+#Elemento interactivo para visualizar listas desplegables de departamentos y meses
+_= widgets.interact(
+                    filtrar_dep_mes,
+                    dep = ordenar(df_fallecimientos_mes_dpto.NOMBRE_DEPARTAMENTO),
+                    month = ['TODOS','ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
+                    )
+
+print(f'Seleccione el mes y el año de interes') #Mensaje para seleccionar
+#Elemento interactivo para visualizar listas desplegables de meses y años
+_= widgets.interact(
+                    filtrar_anio_mes,
+                    month = ['TODOS','ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'],
+                    anio = ordenar(df_base_covid_2['Anio'])
+                    )
+
+print(f'Seleccione el estado y el genero de interes') #Mensaje para seleccionar
+#Elemento interactivo para visualizar listas desplegables de estado y genero
+_= widgets.interact(
+                    filtrar_genero,
+                    estado = ordenar(df_fallecimientos_genero.ESTADO),
+                    genero = ordenar(df_base_covid_2.SEXO)
+                    )
+
+print(f'Seleccione la edad  y el tipo de contagio de interes') #Mensaje para seleccionar
+#Elemento interactivo para visualizar listas desplegables de estado y genero
+_= widgets.interact(
+                    filtrar_edad,
+                    edad = ordenar(df_tipo_contagio.EDAD_2),
+                    contagio = ordenar(df_base_covid.TIPO_CONTAGIO)
+                    )
+
+print(f'Seleccione el departamento y el tipo de contagio interes') #Mensaje para seleccionar
+#Elemento interactivo para visualizar listas desplegables de estado y genero
+_= widgets.interact(
+                    filtrar_dpto_contagio,
+                    dep = ordenar(df_contagio_dep.NOMBRE_DEPARTAMENTO),
+                    contagio = ordenar(df_base_covid.TIPO_CONTAGIO)
+                    )
+#definimos el boton
+boton = widgets.Button(
+                description ='Exportar',
+                disable = False,
+                button_style = 'success'
+            )
+
+#definimos el click en el boton
+boton.on_click(exportar)
+#Visualizamos el boton
+boton
